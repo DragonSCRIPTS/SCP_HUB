@@ -1,0 +1,116 @@
+-- ====================================
+-- MULTI DECODER MODULE
+-- Combina todos os módulos para desobfuscar códigos com múltiplas camadas de encriptação
+-- ====================================
+
+local MultiDecoderModule = {
+    name = "MultiDecoder",
+    version = "1.0.0",
+    priority = 10,
+    description = "Orquestra múltiplos módulos para desobfuscar códigos com camadas mistas",
+    author = "ModuleSystem",
+
+    -- Links para os módulos (usando raw.githubusercontent.com)
+    moduleLinks = {
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/Base32DecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/Base64DecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/BitShiftDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/GzipDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/HexadecimalDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/LuraphDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/ROT13DecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/SubstitutionDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/XORDecoderModule.lua",
+        "https://raw.githubusercontent.com/DragonSCRIPTS/SCP_HUB/main/AESDecoderModule.lua"
+    },
+
+    -- Função para carregar módulos via loadstring
+    loadModule = function(self, url)
+        local response = game:HttpGet(url) -- Simula requisição HTTP (funciona em executors)
+        if response then
+            return loadstring(response)()
+        else
+            warn("Falha ao carregar módulo de: " .. url)
+            return nil
+        end
+    end,
+
+    -- Verifica se o script pode ser tratado
+    canHandle = function(script, metadata)
+        if not script or not script.Source then return false end
+        return true -- Assume que pode tentar desobfuscar qualquer coisa
+    end,
+
+    -- Extrai e desobfusca o código usando todos os módulos
+    extract = function(script, options)
+        local source = script.Source
+        if not source then return nil end
+
+        local modules = {}
+        local decodedParts = {}
+        local remaining = source
+
+        -- Carrega todos os módulos
+        for _, url in pairs(MultiDecoderModule.moduleLinks) do
+            local module = MultiDecoderModule:loadModule(url)
+            if module and module.canHandle and type(module.extract) == "function" then
+                table.insert(modules, module)
+            end
+        end
+
+        -- Loop até que todo o código seja desobfuscado ou não haja progresso
+        while remaining and #remaining > 0 do
+            local progressMade = false
+            for _, module in pairs(modules) do
+                local result, method = module.extract({Source = remaining}, options)
+                if result and result ~= remaining then
+                    table.insert(decodedParts, result)
+                    remaining = remaining:gsub(result, ""):match("^%s*(.-)%s*$") or ""
+                    progressMade = true
+                    break -- Tenta o próximo módulo após um sucesso
+                end
+            end
+            if not progressMade then
+                -- Se nenhum módulo avançou, tenta todos novamente nas partes restantes
+                for _, module in pairs(modules) do
+                    local result, method = module.extract({Source = remaining}, options)
+                    if result and result ~= remaining then
+                        table.insert(decodedParts, result)
+                        remaining = remaining:gsub(result, ""):match("^%s*(.-)%s*$") or ""
+                        break
+                    end
+                end
+            end
+            if not progressMade and remaining == source then
+                break -- Sai se não houver progresso inicial
+            end
+        end
+
+        -- Monta o resultado final
+        if #decodedParts > 0 then
+            local finalResult = table.concat(decodedParts, "\n-- Transição entre partes desobfuscadas --\n")
+            local header = "-- MultiDecoder Results\n"
+            header = header .. "-- Métodos usados: " .. table.concat({table.unpack(modules, 1, #modules, function(m) return m.name end)}, ", ") .. "\n"
+            header = header .. "-- ================================\n\n"
+            return header .. finalResult, "multi_decoded"
+        end
+        return nil
+    end,
+
+    -- Detecta se há potencial de múltiplas obfuscações
+    detect = function(script)
+        if not script or not script.Source then
+            return {obfuscated = false, method = "none", confidence = 0}
+        end
+        return {
+            obfuscated = true, -- Assume que pode haver múltiplas camadas
+            method = "multi_obfuscation",
+            confidence = 0.9, -- Alta confiança inicial
+            details = {
+                potential_methods = #MultiDecoderModule.moduleLinks
+            }
+        }
+    end,
+}
+
+return MultiDecoderModule
